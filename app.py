@@ -2,15 +2,21 @@ import streamlit as st
 import requests
 import json
 import os
+import re
 
 from streamlit_extras.badges import badge
 from openai import AzureOpenAI
+
+# Utility to strip HTML from all AI/Sefaria output
+def strip_html(text):
+    """Remove any HTML tags from a string."""
+    return re.sub(r'<[^>]+>', '', text or '', flags=re.MULTILINE)
 
 # Sefaria and Azure OpenAI config
 SEFARIA_API_KEY = os.getenv("SEFARIA_API_KEY", "")
 AZURE_OPENAI_ENDPOINT = os.getenv("ENDPOINT_URL", "https://torahaischolar.openai.azure.com/")
 AZURE_OPENAI_DEPLOYMENT = os.getenv("DEPLOYMENT_NAME", "Tora-AI-Scholar")
-AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_API_KEY", "AtyHidbRidZmVya02oDiQS3tfDDQuZgVumHe6rwc9pa2deW4pdLPJQQJ99BDACYeBjFXJ3w3AAABACOG2RGx")
+AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")  # NEVER hardcode keys!
 
 SEFARIA_BASE_URL = "https://www.sefaria.org/api"
 
@@ -45,7 +51,10 @@ def call_llm(messages):
             presence_penalty=0,
             stream=False
         )
-        return response.choices[0].message.content.strip(), None
+        # Defensive: ensure no HTML sneaks in
+        content = getattr(response.choices[0].message, "content", "")
+        content = strip_html(content)
+        return content.strip(), None
     except Exception as e:
         return None, str(e)
 
@@ -68,6 +77,8 @@ if "memory" not in st.session_state:
 Agent Name: Sefaria Scholar Bot
 Purpose: Provide access to Jewish texts, insights, and structured learning from the Sefaria digital library.
 Persona: Friendly, respectful, knowledgeable in Jewish literature and tradition, neutral in halachic or denominational views.
+
+# IMPORTANT: Never use HTML tags or formatting in your response. Use only plain text (with Markdown if needed, but never raw HTML).
 
 =========================================
  Sefaria Library Categories
@@ -149,61 +160,8 @@ General Behavior
      “The world stands on three things: on Torah, on service [of God], and on acts of lovingkindness.”
      https://www.sefaria.org/Pirkei_Avot.1.2
 
-=========================================
-When Asked for a Specific Text
-=========================================
-1. Detect and validate the reference.
-2. Retrieve the text using Sefaria’s API.
-3. Return:
-   - Quoted text (English)
-   - Reference in standard format
-   - Link to Sefaria
-If the text includes commentary (e.g., Rashi), offer it optionally.
-Fallback:
-"I'm sorry, I couldn’t locate that text in the Sefaria library. Could you please double-check the reference?"
+# Never use HTML tags or formatting in your response. Use only plain text (with Markdown if needed, but never raw HTML).
 
-=========================================
-When Asked a Thematic Question
-=========================================
-1. Search for relevant sources in Sefaria using key themes.
-2. Present:
-   - Up to 3 brief, quoted sources with full citation and links.
-   - Concise, neutral summary of common thread (no interpretation).
-Example Output:
-Judaism emphasizes justice as a core value:
-- “Justice, justice shall you pursue...” (Deuteronomy 16:20)
-- “The world endures on...truth and justice.” (Avot 1:18)
-- “Let justice roll down like waters...” (Amos 5:24)
-https://www.sefaria.org
-
-=========================================
-When Asked for Daily Study
-=========================================
-1. Offer one or more of:
-   - Parashat HaShavua
-   - Daf Yomi
-   - Daily Mishnah
-2. Return:
-   - Quoted excerpt
-   - Reference and date
-   - Sefaria link
-Example Output:
-Today’s Daf Yomi — Ketubot 75b
-“A man may betroth a woman by himself or through an agent...”
-https://www.sefaria.org/Ketubot.75b
-# Developer Note: If date-aware, fetch daily items dynamically.
-
-=========================================
-System Boundaries
-=========================================
-1. No hallucinations — All content must be pulled from verified Sefaria sources.
-2. Always cite — Include full reference and direct link to sefaria.org.
-3. No halachic rulings — Never issue legal/religious decisions.
-4. No political or ideological opinions — Avoid modern controversy.
-5. No personal beliefs — Stay within sourced texts.
-6. Respect diversity — Do not gatekeep based on observance level or denomination.
-7. Escalation/Fallback Handling:
-   - If unsure: “I wasn’t able to find an exact source for that. Would you like to rephrase or try another topic?”
 # Developer Note: This bot is educational. It is not a substitute for a rabbi or posek.
 """
         }
@@ -221,36 +179,48 @@ if st.button("Submit"):
         st.warning("Please enter a question.")
     else:
         # Step 1: Get references
-        with st.spinner("🔍 Search Torah AI..."):
-            ref_finder_prompt = f"What are the most relevant Jewish text references from Sefaria for this question: '{question}'? Return a comma-separated list (e.g., Genesis 1:1, Exodus 20:13, Mishneh Torah, Repentance 2:1)."
+        with st.spinner("🔍 Finding relevant Sefaria references..."):
+            ref_finder_prompt = (
+                "What are the most relevant Jewish text references from Sefaria for this question: "
+                f"'{question}'? Return a comma-separated list (e.g., Genesis 1:1, Exodus 20:13, Mishneh Torah, Repentance 2:1). "
+                "Never use HTML."
+            )
             ref_response, ref_error = call_llm([{"role": "user", "content": ref_finder_prompt}])
 
         if ref_error:
             st.error(ref_error)
         else:
-            references = [ref.strip() for ref in ref_response.split(",") if ref.strip()]
+            references = [strip_html(ref.strip()) for ref in ref_response.split(",") if ref.strip()]
             fetched_texts = {}
 
-            with st.spinner("📚 Fetching texts from Torah AI..."):
+            with st.spinner("📚 Fetching texts from Sefaria..."):
                 for ref in references:
                     data, error = sefaria_get(ref, sefaria_api_key)
                     if error:
                         fetched_texts[ref] = f"[Error fetching text: {error}]"
                     else:
                         text = data.get("text", [])
-                        fetched_texts[ref] = text[0] if text else "[No text found]"
+                        # Robust: text may be list or string, always strip HTML
+                        if isinstance(text, list):
+                            text_val = strip_html(text[0]) if text else "[No text found]"
+                        elif isinstance(text, str):
+                            text_val = strip_html(text)
+                        else:
+                            text_val = "[No text found]"
+                        fetched_texts[ref] = text_val
 
             # Step 2: Answer the question using those texts
-            combined_text = "\n".join([f"{ref}: {text}" for ref, text in fetched_texts.items()])
-            user_prompt = f"The user asked: '{question}'.\nHere are the relevant Jewish texts:\n{combined_text}"
+            combined_text = "\n".join([f"{ref}: {txt}" for ref, txt in fetched_texts.items()])
+            user_prompt = f"The user asked: '{question}'.\nHere are the relevant Jewish texts:\n{combined_text}\nRemember: NEVER use HTML in your answer."
             st.session_state.memory.append({"role": "user", "content": user_prompt})
 
-            with st.spinner("💬 Asking Torah AI..."):
+            with st.spinner("💬 Asking Azure OpenAI..."):
                 final_answer, answer_error = call_llm(st.session_state.memory)
 
             if answer_error:
                 st.error(answer_error)
             else:
+                final_answer = strip_html(final_answer)
                 st.session_state.memory.append({"role": "assistant", "content": final_answer})
                 st.session_state.full_history.append({
                     "question": question,
@@ -275,6 +245,11 @@ if st.button("Submit"):
                 with col2:
                     st.subheader("🗂️ Session History")
                     for item in reversed(st.session_state.full_history):
-                        st.markdown(f"- {item['question']}")
+                        st.markdown(f"- {strip_html(item['question'])}")
 
-                    st.download_button("Export as JSON", data=json.dumps(st.session_state.full_history, indent=2), file_name="session_history.json", mime="application/json")
+                    st.download_button(
+                        "Export as JSON",
+                        data=json.dumps(st.session_state.full_history, indent=2),
+                        file_name="session_history.json",
+                        mime="application/json"
+                    )
