@@ -52,7 +52,7 @@ def call_llm(messages):
 # Streamlit UI setup
 st.set_page_config(page_title="Sefaria Assistant", layout="wide", page_icon="📖")
 st.title("📖 Sefaria Assistant")
-badge(type="github", name="View on GitHub", url="https://github.com/Sefaria/Sefaria-Project")
+# badge(type="github", name="View on GitHub", url="https://github.com/Sefaria/Sefaria-Project")
 
 # API Key config panel
 st.sidebar.header("🔧 API Keys")
