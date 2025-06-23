@@ -179,7 +179,7 @@ if st.button("Submit"):
         st.warning("Please enter a question.")
     else:
         # Step 1: Get references
-        with st.spinner("🔍 Finding relevant Sefaria references..."):
+        with st.spinner("Searching Torah AI..."):
             ref_finder_prompt = (
                 "What are the most relevant Jewish text references from Sefaria for this question: "
                 f"'{question}'? Return a comma-separated list (e.g., Genesis 1:1, Exodus 20:13, Mishneh Torah, Repentance 2:1). "
@@ -193,7 +193,7 @@ if st.button("Submit"):
             references = [strip_html(ref.strip()) for ref in ref_response.split(",") if ref.strip()]
             fetched_texts = {}
 
-            with st.spinner("📚 Fetching texts from Sefaria..."):
+            with st.spinner("📚 Fetching texts from Torah AI..."):
                 for ref in references:
                     data, error = sefaria_get(ref, sefaria_api_key)
                     if error:
@@ -214,7 +214,7 @@ if st.button("Submit"):
             user_prompt = f"The user asked: '{question}'.\nHere are the relevant Jewish texts:\n{combined_text}\nRemember: NEVER use HTML in your answer."
             st.session_state.memory.append({"role": "user", "content": user_prompt})
 
-            with st.spinner("💬 Asking Azure OpenAI..."):
+            with st.spinner("Torah AI is checking ..."):
                 final_answer, answer_error = call_llm(st.session_state.memory)
 
             if answer_error:
